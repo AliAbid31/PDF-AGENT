@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # Service 1 : Ton backend (construit avec le Dockerfile ci-dessus)
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - redis
+      - qdrant
+
+  # Service 2 : Ton cache Redis (image officielle toute prête)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Service 3 : Ta base vectorielle Qdrant pour les PDF
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+
+  # Service 4 : Ton frontend Next.js
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend

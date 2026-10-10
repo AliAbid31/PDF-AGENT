@@ -1,0 +1,22 @@
+from azure_storage.blob import BlobServiceClient
+from fastapi import HTTPException
+from app.core.config import settings
+
+class AzureStorage:
+    def __init__(self):
+        self.blob_service_client = BlobServiceClient.from_connection_string(
+            settings.AZURE_STORAGE_CONNECTION_STRING
+        )
+        self.container_name = settings.AZURE_CONTAINER_NAME
+        if not self.container_name.exists():
+            self.container_name.create_container()
+
+    def upload_file(self, filebytes: bytes, filename: str, content_type: str = "application/pdf") -> str:
+        try:
+            blob_client = self.blob_service_client.get_blob_client(filename)
+            blob_client.upload_blob(filebytes, overwrite=True, content_type=content_type)
+            return blob_client.url
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+azure_storage = AzureStorage()
