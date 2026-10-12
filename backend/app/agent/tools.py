@@ -10,7 +10,7 @@ from app.services.pdf_engine import generate_pdf
 def search_document(query: str, user_id: str):
     """Searches for relevant passages in the PDFs uploaded by the user."""
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
+        model="gemini-embedding-2-preview",
         api_key=settings.GEMINI_API_KEY
     )
     query_vector = embeddings.embed_query(query)

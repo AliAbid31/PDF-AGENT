@@ -5,10 +5,10 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
-from app.agent.tools import generate_and_email_pdf, search_document_knowledge
+from app.agent.tools import generate_pdf_tool, search_document
 from app.core.config import settings
 
-tools = [search_document_knowledge, generate_and_email_pdf]
+tools = [search_document, generate_pdf_tool]
 llm = ChatGoogleGenerativeAI(
     model="gemini-3-flash", streaming=True, api_key=settings.GEMINI_API_KEY
 ).bind_tools(tools)

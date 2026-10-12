@@ -5,7 +5,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
-from app.schemas.user import Token, UserRegister, UserResponse
+from app.schemas.user import Token, UserRegister, UserResponse, UserLogin
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 
@@ -35,13 +35,13 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    login_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.email == form_data.username).first()
+    user = db.query(User).filter(User.email == login_data.username).first()
 
     if not user or not verify_password(
-        form_data.password, user.hashed_password
+        login_data.password, user.hashed_password
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -49,7 +49,7 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(subject=user.id)
+    access_token = create_access_token(data=user.id)
 
     return {"access_token": access_token, "token_type": "bearer"}
 

@@ -7,14 +7,14 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
-from app.agent.graph import app_agent
+from app.agent.graph import agent
 from app.api import auth
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.database import Base, engine, get_db
 from app.models.document import DocumentChunk
 from app.models.user import User
-from app.services.azure_storage import storage_service
+from app.services.azure_storage import azure_storage
 
 Base.metadata.create_all(bind=engine)
 
@@ -44,11 +44,11 @@ async def upload_pdf(
 
     file_bytes = await file.read()
 
-    azure_url = storage_service.upload_file(file_bytes, file.filename)
+    azure_url = azure_storage.upload_file(file_bytes, file.filename)
 
     reader = PdfReader(io.BytesIO(file_bytes))
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004", google_api_key=settings.GEMINI_API_KEY
+        model="gemini-embedding-2-preview", google_api_key=settings.GEMINI_API_KEY
     )
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000, chunk_overlap=150
@@ -77,7 +77,7 @@ async def upload_pdf(
     db.commit()
 
     return {
-        "message": "Document vectorisé et stocké avec succès",
+        "message": "Document Vectorised and stored successfully",
         "url": azure_url,
         "chunks": len(chunks_to_create),
     }
@@ -92,8 +92,7 @@ async def chat_with_agent(
             "messages": [HumanMessage(content=question)],
             "user_id": str(current_user.id),
         }
-        # Exécution du graphe LangGraph
-        async for output in app_agent.astream(inputs):
+        async for output in agent.astream(inputs):
             for key, value in output.items():
                 if "messages" in value:
                     msg = value["messages"][-1]
@@ -101,3 +100,8 @@ async def chat_with_agent(
                         yield f"data: {msg.content}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

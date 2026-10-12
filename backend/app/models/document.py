@@ -14,4 +14,4 @@ class DocumentChunk(Base):
     page_number = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     # Embeddings text-embedding-3-small font 1536 dimensions
-    embedding = Column(Vector(1536), nullable=False)
+    embedding = Column(Vector(3072), nullable=False)
