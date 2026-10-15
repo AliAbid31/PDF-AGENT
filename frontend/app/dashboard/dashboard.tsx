@@ -49,44 +49,45 @@ export function Dashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  
   useEffect(() => {
-    fetchUser();
-  }, []);
-
-  const fetchUser = async () => {
-    try {
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        router.push("/login");
-        return;
-      }
-
-      const response = await fetch("/api/auth/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        // For testing, use mock user if backend is unavailable
+    const fetchUser = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+          router.push("/login");
+          return;
+        }
+  
+        const response = await fetch("/api/auth/me", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+  
+        if (!response.ok) {
+          // For testing, use mock user if backend is unavailable
+          setUser({
+            id: "test-user-123",
+            email: "user@alipdf.com",
+          });
+          return;
+        }
+  
+        const userData = await response.json();
+        setUser(userData);
+      } catch (error) {
+        console.error("Failed to fetch user:", error);
+        // For testing, use mock user if backend connection fails
         setUser({
           id: "test-user-123",
           email: "user@alipdf.com",
         });
-        return;
       }
-
-      const userData = await response.json();
-      setUser(userData);
-    } catch (error) {
-      console.error("Failed to fetch user:", error);
-      // For testing, use mock user if backend connection fails
-      setUser({
-        id: "test-user-123",
-        email: "user@alipdf.com",
-      });
-    }
-  };
+    };
+    fetchUser();
+  }, []);
+  
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -176,7 +177,7 @@ export function Dashboard() {
             {/* Header */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2 mb-6">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-pink-600 dark:from-blue-500 dark:to-purple-600 flex items-center justify-center text-white">
                   <FileText className="w-4 h-4" />
                 </div>
                 <h1 className="font-bold text-slate-900 dark:text-white">
@@ -185,7 +186,7 @@ export function Dashboard() {
               </div>
               <button
                 onClick={handleNewChat}
-                className="w-full py-2 px-3 bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors text-sm"
+                className="w-full py-2 px-3 bg-red-500 dark:bg-blue-600 hover:bg-red-600 dark:hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors text-sm"
               >
                 <Plus className="w-4 h-4" />
                 New Chat
@@ -217,7 +218,7 @@ export function Dashboard() {
                     onClick={() => setCurrentConversation(conversation)}
                     className={`w-full text-left p-3 rounded-lg transition-all text-sm ${
                       currentConversation?.id === conversation.id
-                        ? "bg-blue-500/20 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/50 dark:border-blue-500/50"
+                        ? "bg-red-500/20 dark:bg-blue-500/20 text-red-600 dark:text-blue-400 border border-red-500/50 dark:border-blue-500/50"
                         : "text-slate-700 dark:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800/50"
                     }`}
                   >
@@ -236,7 +237,7 @@ export function Dashboard() {
             <div className="border-t border-slate-200 dark:border-slate-800 p-4 space-y-2">
               {user && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-100 dark:bg-slate-800">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex-shrink-0"></div>
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-pink-600 dark:from-blue-500 dark:to-purple-600 flex-shrink-0"></div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-slate-900 dark:text-white truncate">
                       {user.email.split("@")[0]}
@@ -362,14 +363,14 @@ export function Dashboard() {
                   }`}
                 >
                   {message.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex-shrink-0 flex items-center justify-center text-white text-sm font-bold">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-pink-600 dark:from-blue-500 dark:to-purple-600 flex-shrink-0 flex items-center justify-center text-white text-sm font-bold">
                       A
                     </div>
                   )}
                   <div
                     className={`max-w-xl px-4 py-3 rounded-lg ${
                       message.role === "user"
-                        ? "bg-blue-500 dark:bg-blue-600 text-white rounded-br-none"
+                        ? "bg-red-500 dark:bg-blue-600 text-white rounded-br-none"
                         : "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded-bl-none"
                     }`}
                   >
@@ -395,7 +396,7 @@ export function Dashboard() {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex gap-4"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex-shrink-0 flex items-center justify-center text-white text-sm font-bold">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-pink-600 dark:from-blue-500 dark:to-purple-600 flex-shrink-0 flex items-center justify-center text-white text-sm font-bold">
                     A
                   </div>
                   <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 rounded-lg rounded-bl-none">
@@ -424,22 +425,22 @@ export function Dashboard() {
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between text-sm"
+              className="mb-3 p-3 bg-red-50 dark:bg-blue-900/20 border border-red-200 dark:border-blue-800 rounded-lg flex items-center justify-between text-sm"
             >
               <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <FileText className="w-4 h-4 text-red-600 dark:text-blue-400" />
                 <div>
-                  <p className="font-medium text-blue-900 dark:text-blue-100">
+                  <p className="font-medium text-red-900 dark:text-blue-100">
                     {uploadedFile.name}
                   </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-200">
+                  <p className="text-xs text-red-700 dark:text-blue-200">
                     {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setUploadedFile(null)}
-                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                className="text-red-600 dark:text-blue-400 hover:text-red-700 dark:hover:text-blue-300"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -471,14 +472,14 @@ export function Dashboard() {
                 }
               }}
               placeholder="Ask anything about your documents, cite clauses, or synthesize data..."
-              className="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none max-h-32"
+              className="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500/50 dark:focus:ring-blue-500/50 resize-none max-h-32"
               rows={1}
             />
 
             <button
               onClick={handleSendMessage}
               disabled={!input.trim() || loading || !currentConversation}
-              className="p-3 bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white rounded-lg transition-colors flex-shrink-0"
+              className="p-3 bg-red-500 dark:bg-blue-600 hover:bg-red-600 dark:hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white rounded-lg transition-colors flex-shrink-0"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
