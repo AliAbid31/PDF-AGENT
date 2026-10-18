@@ -44,8 +44,10 @@ export function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [uploadedFile, setUploadedFile] = useState<
-    { name: string; size: number } | null
+    { file: File; name: string; size: number } | null
   >(null);
+  const [uploading, setUploading] = useState(false);
+  const [requestError, setRequestError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +88,7 @@ export function Dashboard() {
       }
     };
     fetchUser();
-  }, []);
+  }, [router]);
   
 
   const scrollToBottom = () => {
@@ -98,49 +100,168 @@ export function Dashboard() {
   }, [currentConversation?.messages]);
 
   const handleSendMessage = async () => {
-    if (!input.trim() || !currentConversation) return;
+    const messageContent = input.trim();
+    if (!messageContent || loading || uploading) return;
 
     const newMessage: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content: messageContent,
       timestamp: new Date(Date.now()),
     };
 
     setInput("");
     setLoading(true);
+    setRequestError("");
 
-    setCurrentConversation((prev) =>
-      prev
-        ? { ...prev, messages: [...prev.messages, newMessage] }
-        : null
-    );
-
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content:
-          "I'm ready to help you with your documents. What would you like me to do?",
-        timestamp: new Date(Date.now()),
-      };
-
+    if (currentConversation) {
       setCurrentConversation((prev) =>
         prev
-          ? { ...prev, messages: [...prev.messages, assistantMessage] }
+          ? { ...prev, messages: [...prev.messages, newMessage] }
           : null
       );
+    } else {
+      const newConversation: Conversation = {
+        id: Date.now().toString(),
+        title: messageContent.slice(0, 40),
+        messages: [newMessage],
+        createdAt: new Date(Date.now()),
+      };
+      setConversations((prev) => [newConversation, ...prev]);
+      setCurrentConversation(newConversation);
+    }
+
+    try {
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ question: messageContent }),
+      });
+
+      if (!response.ok || !response.body) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "The assistant could not answer.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      let buffer = "";
+
+      const appendAssistantMessage = (content: string) => {
+        setCurrentConversation((prev) => {
+          if (!prev) return prev;
+          const lastMessage = prev.messages[prev.messages.length - 1];
+          if (lastMessage?.role === "assistant") {
+            return {
+              ...prev,
+              messages: [
+                ...prev.messages.slice(0, -1),
+                { ...lastMessage, content },
+              ],
+            };
+          }
+          return {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content,
+                timestamp: new Date(),
+              },
+            ],
+          };
+        });
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+
+        for (const event of events) {
+          const eventType =
+            event
+              .split("\n")
+              .find((line) => line.startsWith("event:"))
+              ?.slice(6)
+              .trim() || "message";
+          const content = event
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (content) {
+            if (eventType === "error") {
+              throw new Error(content);
+            }
+            assistantContent += content;
+            appendAssistantMessage(assistantContent);
+          }
+        }
+
+        if (done) break;
+      }
+
+      if (!assistantContent) {
+        throw new Error("The assistant returned an empty response.");
+      }
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "The request failed.",
+      );
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type === "application/pdf") {
-      setUploadedFile({
-        name: file.name,
-        size: file.size,
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setRequestError("Only PDF files are allowed.");
+      return;
+    }
+
+    setUploading(true);
+    setRequestError("");
+    try {
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/documents/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || "The PDF could not be uploaded.");
+      }
+
+      setUploadedFile({ file, name: file.name, size: file.size });
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "The PDF upload failed.",
+      );
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -421,6 +542,12 @@ export function Dashboard() {
 
         {/* Input Area */}
         <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4">
+          {requestError && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+              {requestError}
+            </div>
+          )}
+
           {uploadedFile && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -439,8 +566,12 @@ export function Dashboard() {
                 </div>
               </div>
               <button
-                onClick={() => setUploadedFile(null)}
+                onClick={() => {
+                  setUploadedFile(null);
+                  setRequestError("");
+                }}
                 className="text-red-600 dark:text-blue-400 hover:text-red-700 dark:hover:text-blue-300"
+                aria-label="Remove uploaded PDF"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -457,9 +588,15 @@ export function Dashboard() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0"
+              disabled={uploading || loading}
+              aria-label={uploading ? "Uploading PDF" : "Upload PDF"}
+              className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors flex-shrink-0"
             >
-              <Plus className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              {uploading ? (
+                <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Plus className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              )}
             </button>
 
             <textarea
@@ -478,8 +615,15 @@ export function Dashboard() {
 
             <button
               onClick={handleSendMessage}
-              disabled={!input.trim() || loading || !currentConversation}
-              className="p-3 bg-red-500 dark:bg-blue-600 hover:bg-red-600 dark:hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white rounded-lg transition-colors flex-shrink-0"
+              disabled={!input.trim() || loading || uploading}
+              aria-label={
+                uploading
+                  ? "Waiting for PDF upload"
+                  : loading
+                    ? "Sending message"
+                    : "Send message"
+              }
+              className="p-3 bg-red-500 dark:bg-blue-600 hover:bg-red-600 dark:hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-all duration-200 flex-shrink-0"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>

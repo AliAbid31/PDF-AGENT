@@ -10,7 +10,7 @@ from app.core.config import settings
 
 tools = [search_document, generate_pdf_tool]
 llm = ChatGoogleGenerativeAI(
-    model="gemini-3-flash", streaming=True, api_key=settings.GEMINI_API_KEY
+    model="gemini-2.5-flash", streaming=True, api_key=settings.GEMINI_API_KEY
 ).bind_tools(tools)
 
 class AgentState(TypedDict):
@@ -37,7 +37,7 @@ graph.add_node("model", call_model)
 graph.add_node("tools", ToolNode(tools))
 graph.set_entry_point("model")
 graph.add_conditional_edges(
-    "model", should_continue, {"tools": "tools", END: "model"}
+    "model", should_continue, {"tools": "tools", END: END}
 )
 graph.add_edge("tools", "model")
 agent = graph.compile()

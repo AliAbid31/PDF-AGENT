@@ -1,5 +1,8 @@
+from typing import Annotated
+
 from langchain_core.tools import tool
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langgraph.prebuilt import InjectedState
 from sqlalchemy import text
 from app.core.database import SessionLocal
 from app.core.config import settings
@@ -7,7 +10,9 @@ from app.services.email_service import send_email
 from app.services.pdf_engine import generate_pdf
 
 @tool
-def search_document(query: str, user_id: str):
+def search_document(
+    query: str, user_id: Annotated[str, InjectedState("user_id")]
+):
     """Searches for relevant passages in the PDFs uploaded by the user."""
     embeddings = GoogleGenerativeAIEmbeddings(
         model="gemini-embedding-2-preview",
@@ -17,12 +22,11 @@ def search_document(query: str, user_id: str):
     db = SessionLocal()
     try:
         sql = text(
-            """
-            SELECT document_name, page_number, content, 
-                   1 - (embedding <=> :vec::vector) AS similarity
+        """
+            SELECT document_name, page_number, content
             FROM document_chunks
             WHERE user_id = :uid
-            ORDER BY embedding <=> :vec::vector
+            ORDER BY embedding <=> CAST(:vec AS vector)
             LIMIT 4;
         """
         )
@@ -30,7 +34,7 @@ def search_document(query: str, user_id: str):
         if not result:
             return "No relevant passages found."
         return "\n\n".join(
-            [f"[Doc: {r[0]} | Page {r[1]}]: {r[2]}" for r in results]
+            [f"[Doc: {r[0]} | Page {r[1]}]: {r[2]}" for r in result]
         )
     finally:
         db.close()

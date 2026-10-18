@@ -88,16 +88,39 @@ async def chat_with_agent(
     question: str, current_user: User = Depends(get_current_user)
 ):
     async def event_generator():
-        inputs = {
-            "messages": [HumanMessage(content=question)],
-            "user_id": str(current_user.id),
-        }
-        async for output in agent.astream(inputs):
-            for key, value in output.items():
-                if "messages" in value:
-                    msg = value["messages"][-1]
-                    if hasattr(msg, "content") and msg.content:
-                        yield f"data: {msg.content}\n\n"
+        try:
+            inputs = {
+                "messages": [HumanMessage(content=question)],
+                "user_id": str(current_user.id),
+            }
+            async for output in agent.astream(inputs):
+                for value in output.values():
+                    if "messages" in value:
+                        msg = value["messages"][-1]
+                        if getattr(msg, "type", None) != "ai":
+                            continue
+                        if hasattr(msg, "content") and msg.content:
+                            content = msg.content
+                            if isinstance(content, list):
+                                content = "".join(
+                                    part.get("text", "")
+                                    for part in content
+                                    if isinstance(part, dict)
+                                )
+                            if content:
+                                yield f"data: {content}\n\n"
+        except Exception as error:
+            error_text = str(error)
+            print(f"Chat agent error: {type(error).__name__}: {error_text}")
+            if "RESOURCE_EXHAUSTED" in error_text or "quota" in error_text.lower():
+                message = (
+                    "The AI provider quota is exhausted. "
+                    "Please try again later or configure a billing-enabled API key."
+                )
+            else:
+                message = "The document assistant could not complete this request."
+            yield "event: error\n"
+            yield f"data: {message}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
