@@ -92,12 +92,21 @@ async def chat_with_agent(
             inputs = {
                 "messages": [HumanMessage(content=question)],
                 "user_id": str(current_user.id),
+                "user_email": current_user.email,
             }
             async for output in agent.astream(inputs):
                 for value in output.values():
                     if "messages" in value:
                         msg = value["messages"][-1]
+                        if getattr(msg, "name", None) == "generate_pdf_tool":
+                            yield (
+                                "data: Your PDF summary was generated and sent "
+                                "to your email.\n\n"
+                            )
+                            continue
                         if getattr(msg, "type", None) != "ai":
+                            continue
+                        if getattr(msg, "tool_calls", None):
                             continue
                         if hasattr(msg, "content") and msg.content:
                             content = msg.content
