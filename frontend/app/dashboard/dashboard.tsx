@@ -68,11 +68,8 @@ export function Dashboard() {
         });
   
         if (!response.ok) {
-          // For testing, use mock user if backend is unavailable
-          setUser({
-            id: "test-user-123",
-            email: "user@alipdf.com",
-          });
+          localStorage.removeItem("access_token");
+          router.push("/login");
           return;
         }
   
@@ -80,11 +77,8 @@ export function Dashboard() {
         setUser(userData);
       } catch (error) {
         console.error("Failed to fetch user:", error);
-        // For testing, use mock user if backend connection fails
-        setUser({
-          id: "test-user-123",
-          email: "user@alipdf.com",
-        });
+        localStorage.removeItem("access_token");
+        router.push("/login");
       }
     };
     fetchUser();

@@ -10,7 +10,7 @@ from app.core.config import settings
 
 tools = [search_document, generate_pdf_tool]
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", streaming=True, api_key=settings.GEMINI_API_KEY
+    model="gemini-3.8-flash", streaming=True, api_key=settings.GEMINI_API_KEY
 ).bind_tools(tools)
 
 class AgentState(TypedDict):
