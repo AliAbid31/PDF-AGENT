@@ -12,8 +12,15 @@ class Settings(BaseSettings):
     AZURE_CONTAINER_NAME: str = "pdf-documents"
 
     GEMINI_API_KEY: str
-    RESEND_API_KEY: str
-    EMAIL_FROM: str = "onboarding@resend.dev"
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    EMAIL_ADDRESS: str = ""
+    EMAIL_PASSWORD: str = ""
+    SENDER_NAME: str = "Ali-PDF AI"
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

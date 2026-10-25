@@ -20,6 +20,13 @@ from app.services.email_service import send_email
 from app.services.pdf_engine import generate_pdf
 
 Base.metadata.create_all(bind=engine)
+with engine.begin() as connection:
+    connection.execute(text(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR"
+    ))
+    connection.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"
+    ))
 
 app = FastAPI(title=settings.PROJECT_NAME)
 

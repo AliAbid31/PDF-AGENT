@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff, FileText } from "lucide-react";
 import { ThemeToggle } from "../components/theme-toggle";
 
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
 export function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -191,6 +194,9 @@ export function LoginPage() {
           {/* Google OAuth */}
           <button
             type="button"
+            onClick={() => {
+              window.location.href = `${BACKEND_URL}/api/auth/google/login`;
+            }}
             className="w-full py-3 px-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700/50 hover:bg-slate-200 dark:hover:bg-slate-700/50 text-slate-900 dark:text-slate-200 font-medium rounded-full transition-all flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
