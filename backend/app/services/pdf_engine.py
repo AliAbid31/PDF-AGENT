@@ -142,16 +142,15 @@ def clean_extracted_text(text: str) -> str:
     text = _safe_text(text)
     text = text.replace("\r", "\n")
     text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
-    text = re.sub(r"(?m)^\s*\[?[^]\n|]+\s*\|\s*Page\s+\d+\]?\s*$", "", text)
-    text = re.sub(r"(?m)^\s*Page\s+\d+\s*$", "", text)
+    text = re.sub(r"(?m)^[ \t]*\[?[^]\n|]+[ \t]*\|[ \t]*Page[ \t]+\d+\]?[ \t]*$", "", text)
+    text = re.sub(r"(?m)^[ \t]*Page[ \t]+\d+[ \t]*$", "", text)
     text = re.sub(
-        r"(?m)^\s*\d+\s*/\s*\d+\s+.+?(?:Chapter|chapter).*$",
+        r"(?m)^[ \t]*\d+[ \t]*/[ \t]*\d+[ \t]+.+?(?:Chapter|chapter).*$",
         "",
         text,
     )
-    text = re.sub(r"(?m)^\s*\d+\s*/\s*\d+\s*$", "", text)
-    text = re.sub(r"(?m)^\s*(?:Page\s+)?\d+\s*-\s*.+$", "", text)
-    text = re.sub(r"(?m)^\s*(?:Page\s+)?\d+\s*-\s*.+$", "", text)
+    text = re.sub(r"(?m)^[ \t]*\d+[ \t]*/[ \t]*\d+[ \t]*$", "", text)
+    text = re.sub(r"(?m)^[ \t]*(?:Page[ \t]+)?\d+[ \t]*-[ \t]*.+$", "", text)
     text = re.sub(r"[\ue000-\uf8ff]", "", text)
     text = re.sub(r"[\uFFF0-\uFFFF]", "", text)
     text = re.sub(r"(?m)^\s*(?:unn|uii|bi-|n\s*[Σ∑]|[(),])\s*$", "", text)

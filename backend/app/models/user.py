@@ -12,4 +12,8 @@ class User(Base):
     google_sub = Column(String, unique=True, index=True, nullable=True)
     hashed_password = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    verification_code = Column(String(6), nullable=True)
+    reset_password_code = Column(String(6), nullable=True)
+    otp_expires_at = Column(DateTime, nullable=True)

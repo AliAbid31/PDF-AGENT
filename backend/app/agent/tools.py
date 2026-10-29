@@ -21,16 +21,38 @@ def search_document(
     query_vector = embeddings.embed_query(query)
     db = SessionLocal()
     try:
-        sql = text(
-        """
-            SELECT document_name, page_number, content
-            FROM document_chunks
-            WHERE user_id = :uid
-            ORDER BY embedding <=> CAST(:vec AS vector)
-            LIMIT 4;
-        """
+        is_summary = any(
+            word in query.casefold()
+            for word in (
+                "summary",
+                "summarize",
+                "resume",
+                "résumé",
+                "synthesis",
+                "entire document",
+                "whole document",
+                "all pages",
+            )
         )
-        result = db.execute(sql, {"vec": query_vector, "uid": user_id}).fetchall()
+        limit = 80 if is_summary else 12
+        order = (
+            "document_name, page_number, id"
+            if is_summary
+            else "embedding <=> CAST(:vec AS vector)"
+        )
+        sql = text(
+            f"""
+                SELECT document_name, page_number, content
+                FROM document_chunks
+                WHERE user_id = :uid
+                ORDER BY {order}
+                LIMIT :limit;
+            """
+        )
+        result = db.execute(
+            sql,
+            {"vec": query_vector, "uid": user_id, "limit": limit},
+        ).fetchall()
         if not result:
             return "No relevant passages found."
         return "\n\n".join(

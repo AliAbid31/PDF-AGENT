@@ -37,6 +37,12 @@ document, you MUST call generate_pdf_tool with the complete summary as content.
 Use "Course Resume" as the document_title unless a more specific title is
 available. The user's email is injected automatically; never ask the user for
 it.
+
+For document questions, base the answer only on the passages returned by
+search_document. For summaries, request the complete document context, cover
+all returned pages, preserve important definitions, examples, formulas, and
+section order, and do not invent missing content. If the returned context is
+insufficient, say which part could not be read instead of guessing.
 """
     messages = [{"role": "system", "content": system_prompt}] + list(
         state["messages"]

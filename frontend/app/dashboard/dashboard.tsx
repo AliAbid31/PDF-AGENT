@@ -34,6 +34,12 @@ interface User {
   email: string;
 }
 
+interface UploadedDocument {
+  name: string;
+  pages: number;
+  chunks: number;
+}
+
 export function Dashboard() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -48,10 +54,23 @@ export function Dashboard() {
   >(null);
   const [uploading, setUploading] = useState(false);
   const [requestError, setRequestError] = useState("");
+  const [sidebarView, setSidebarView] = useState<"workspace" | "library">(
+    "workspace",
+  );
+  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  
+  const loadDocuments = async () => {
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+    const response = await fetch("/api/documents", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return;
+    setDocuments(await response.json());
+  };
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -75,6 +94,21 @@ export function Dashboard() {
   
         const userData = await response.json();
         setUser(userData);
+        const saved = localStorage.getItem(`conversations:${userData.id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved) as Conversation[];
+          setConversations(
+            parsed.map((conversation) => ({
+              ...conversation,
+              createdAt: new Date(conversation.createdAt),
+              messages: conversation.messages.map((message) => ({
+                ...message,
+                timestamp: new Date(message.timestamp),
+              })),
+            })),
+          );
+        }
+        await loadDocuments();
       } catch (error) {
         console.error("Failed to fetch user:", error);
         localStorage.removeItem("access_token");
@@ -83,7 +117,15 @@ export function Dashboard() {
     };
     fetchUser();
   }, [router]);
-  
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem(
+        `conversations:${user.id}`,
+        JSON.stringify(conversations),
+      );
+    }
+  }, [conversations, user]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -250,6 +292,7 @@ export function Dashboard() {
       }
 
       setUploadedFile({ file, name: file.name, size: file.size });
+      await loadDocuments();
     } catch (error) {
       setRequestError(
         error instanceof Error ? error.message : "The PDF upload failed.",
@@ -310,19 +353,52 @@ export function Dashboard() {
 
             {/* Workspace & PDF Library */}
             <div className="p-4 space-y-3 border-b border-slate-200 dark:border-slate-800">
-              <button className="w-full cursor-pointer flex items-center gap-3 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-sm">
+              <button
+                onClick={() => setSidebarView("workspace")}
+                className={`w-full cursor-pointer flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${
+                  sidebarView === "workspace"
+                    ? "bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                }`}
+              >
                 <Briefcase className="w-4 h-4" />
                 <span>Workspace</span>
               </button>
-              <button className="w-full cursor-pointer flex items-center gap-3 px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-sm">
+              <button
+                onClick={() => setSidebarView("library")}
+                className={`w-full cursor-pointer flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${
+                  sidebarView === "library"
+                    ? "bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                }`}
+              >
                 <BookOpen className="w-4 h-4" />
                 <span>PDF Library</span>
               </button>
             </div>
 
-            {/* Conversations */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {conversations.length === 0 ? (
+              {sidebarView === "library" ? (
+                documents.length === 0 ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 p-3 text-center">
+                    No uploaded PDFs yet
+                  </p>
+                ) : (
+                  documents.map((document) => (
+                    <div
+                      key={document.name}
+                      className="p-3 rounded-lg bg-slate-100/70 dark:bg-slate-800/60"
+                    >
+                      <p className="font-medium text-sm text-slate-900 dark:text-white truncate">
+                        {document.name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        {document.pages} pages · {document.chunks} indexed sections
+                      </p>
+                    </div>
+                  ))
+                )
+              ) : conversations.length === 0 ? (
                 <p className="text-xs text-slate-500 dark:text-slate-400 p-3 text-center">
                   No conversations yet
                 </p>

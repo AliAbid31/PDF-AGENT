@@ -46,6 +46,34 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 
 
+@app.get("/api/documents")
+def list_documents(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = db.execute(
+        text(
+            """
+            SELECT document_name, COUNT(DISTINCT page_number) AS page_count,
+                   COUNT(*) AS chunk_count
+            FROM document_chunks
+            WHERE user_id = :uid
+            GROUP BY document_name
+            ORDER BY document_name
+            """
+        ),
+        {"uid": str(current_user.id)},
+    ).mappings().all()
+    return [
+        {
+            "name": row["document_name"],
+            "pages": row["page_count"],
+            "chunks": row["chunk_count"],
+        }
+        for row in rows
+    ]
+
+
 @app.post("/api/documents/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
@@ -71,7 +99,14 @@ async def upload_pdf(
 
     chunks_to_create = []
     for page_idx, page in enumerate(reader.pages):
-        text_content = clean_extracted_text(page.extract_text() or "")
+        extracted = ""
+        try:
+            extracted = page.extract_text(extraction_mode="layout") or ""
+        except TypeError:
+            extracted = page.extract_text() or ""
+        if len(extracted.strip()) < 20:
+            extracted = page.extract_text() or extracted
+        text_content = clean_extracted_text(extracted)
         if not text_content:
             continue
 
@@ -88,6 +123,19 @@ async def upload_pdf(
                 )
             )
 
+    if not chunks_to_create:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "No selectable text was found in this PDF. It may be scanned "
+                "or image-only; upload a text-readable PDF or run OCR first."
+            ),
+        )
+
+    db.query(DocumentChunk).filter(
+        DocumentChunk.user_id == current_user.id,
+        DocumentChunk.document_name == file.filename,
+    ).delete(synchronize_session=False)
     db.bulk_save_objects(chunks_to_create)
     db.commit()
 
@@ -119,7 +167,7 @@ async def chat_with_agent(
                         SELECT document_name, page_number, content
                         FROM document_chunks
                         WHERE user_id = :uid
-                        ORDER BY page_number, id
+                        ORDER BY document_name, page_number, id
                         """
                     ),
                     {"uid": str(current_user.id)},
