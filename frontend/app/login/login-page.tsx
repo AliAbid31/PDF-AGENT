@@ -125,7 +125,7 @@ export function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 >
                   {showPassword ? (
                     <EyeOff className="w-5 h-5" />
@@ -166,7 +166,7 @@ export function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-red-500 to-pink-600 dark:from-blue-500 dark:to-blue-600 hover:from-red-600 hover:to-pink-700 dark:hover:from-blue-600 dark:hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-600 dark:disabled:to-slate-600 text-white font-medium rounded-full transition-all duration-200 shadow-lg shadow-red-500/20 dark:shadow-blue-500/20 hover:shadow-lg hover:shadow-red-600/30 dark:hover:shadow-blue-600/30 disabled:shadow-none flex items-center justify-center gap-2"
+              className="w-full cursor-pointer py-3 px-4 bg-gradient-to-r from-red-500 to-pink-600 dark:from-blue-500 dark:to-blue-600 hover:from-red-600 hover:to-pink-700 dark:hover:from-blue-600 dark:hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-600 dark:disabled:to-slate-600 disabled:cursor-not-allowed text-white font-medium rounded-full transition-all duration-200 shadow-lg shadow-red-500/20 dark:shadow-blue-500/20 hover:shadow-lg hover:shadow-red-600/30 dark:hover:shadow-blue-600/30 disabled:shadow-none flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
@@ -197,7 +197,7 @@ export function LoginPage() {
             onClick={() => {
               window.location.href = `${BACKEND_URL}/api/auth/google/login`;
             }}
-            className="w-full py-3 px-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700/50 hover:bg-slate-200 dark:hover:bg-slate-700/50 text-slate-900 dark:text-slate-200 font-medium rounded-full transition-all flex items-center justify-center gap-2"
+            className="w-full cursor-pointer py-3 px-4 bg-slate-100 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700/50 hover:bg-slate-200 dark:hover:bg-slate-700/50 text-slate-900 dark:text-slate-200 font-medium rounded-full transition-all flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path

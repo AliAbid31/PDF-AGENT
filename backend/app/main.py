@@ -17,7 +17,12 @@ from app.models.document import DocumentChunk
 from app.models.user import User
 from app.services.azure_storage import azure_storage
 from app.services.email_service import send_email
-from app.services.pdf_engine import generate_pdf
+from app.services.pdf_engine import (
+    clean_extracted_text,
+    generate_pdf,
+    review_summary_text,
+    validate_pdf_bytes,
+)
 
 Base.metadata.create_all(bind=engine)
 with engine.begin() as connection:
@@ -66,7 +71,7 @@ async def upload_pdf(
 
     chunks_to_create = []
     for page_idx, page in enumerate(reader.pages):
-        text_content = page.extract_text()
+        text_content = clean_extracted_text(page.extract_text() or "")
         if not text_content:
             continue
 
@@ -127,12 +132,30 @@ async def chat_with_agent(
                     "No indexed PDF content was found for the authenticated user."
                 )
 
-            passages = "\n\n".join(
-                f"[{row.document_name} | Page {row.page_number}]\n{row.content}"
-                for row in rows
-            )
+            pages: list[str] = []
+            current_page: tuple[str, int] | None = None
+            page_content: list[str] = []
+            for row in rows:
+                page_key = (row.document_name, row.page_number)
+                if current_page is not None and page_key != current_page:
+                    pages.append(
+                        f"Page {current_page[1]} - {current_page[0]}\n"
+                        + "\n".join(page_content)
+                    )
+                    page_content = []
+                current_page = page_key
+                cleaned = review_summary_text(row.content)
+                if cleaned:
+                    page_content.append(cleaned)
+            if current_page is not None:
+                pages.append(
+                    f"Page {current_page[1]} - {current_page[0]}\n"
+                    + "\n".join(page_content)
+                )
+            passages = review_summary_text("\n\n".join(pages))
 
             pdf_bytes = generate_pdf("Course Resume", passages)
+            validate_pdf_bytes(pdf_bytes)
             send_email(
                 to_email=current_user.email,
                 subject="Your Course Resume",
