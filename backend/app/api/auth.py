@@ -1,3 +1,4 @@
+import datetime
 import json
 import secrets
 import time
@@ -14,7 +15,8 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
-from app.schemas.user import Token, UserRegister, UserResponse, UserLogin
+from app.schemas.user import Token, UserRegister, UserResponse, UserLogin, VerifyOTP, ForgotPasswordRequest, ResetPasswordRequest
+from app.services.email_service import send_otp_email, generate_otp
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 _google_states: dict[str, float] = {}
@@ -143,15 +145,101 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
             detail="An account already exists with this email address.",
         )
 
-    new_user = User(
-        email=user_in.email, hashed_password=hash_password(user_in.password)
-    )
-    db.add(new_user)
+    otp = generate_otp()
+    expires_at = datetime.now(time.timezone.utc) + time.timedelta(minutes=30)
+
+    if not existing_user:
+        new_user = User(
+            email=user_in.email, 
+            hashed_password=hash_password(user_in.password),
+            is_verified=False,
+            verification_code=otp,
+            otp_expires_at=expires_at
+        )
+        db.add(new_user)
+    else:
+        existing_user.hashed_password = hash_password(user_in.password)
+        existing_user.verification_code = otp
+        existing_user.otp_expires_at = expires_at
+        
     db.commit()
-    db.refresh(new_user)
 
-    return new_user
+    send_otp_email(to_email=user_in.email, otp_code=otp, purpose="verification")
+    return {
+        "message": "Verification code sent by email. Please verify your account."
+    }
 
+
+
+@router.post("/verify-email", response_model=Token)
+def verify_email(data: VerifyOTP, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    if not user or user.verification_code != data.code:
+        raise HTTPException(
+            status_code=400, detail="Invalid verification code."
+        )
+
+    if user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already verified.",
+        )
+
+    if user.otp_expires_at < datetime.now(time.timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired.",
+        )
+
+    user.is_verified = True
+    user.verification_code = None
+    user.otp_expires_at = None
+    db.commit()
+
+    access_token = create_access_token(data=user.id)
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        return "if an account with this email exists, a reset code has been sent."
+
+    otp = generate_otp()
+    user.reset_password_code = otp
+    user.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    db.commit()
+
+    send_otp_email(to_email=data.email, otp_code=otp, purpose="reset")
+    return "if an account with this email exists, a reset code has been sent."
+
+@router.post("/reset-password", response_model=Token)
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user or user.reset_password_code != data.code:
+        raise HTTPException(
+            status_code=400, detail="Invalid Reset Code."
+        )
+
+    if user.otp_expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=400, detail="Reset code has expired."
+        )
+
+    user.hashed_password = hash_password(data.new_password)
+    user.reset_password_code = None
+    user.otp_expires_at = None
+    db.commit()
+
+    access_token = create_access_token(data=user.id)
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
 def login(
