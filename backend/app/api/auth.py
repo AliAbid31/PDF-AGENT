@@ -1,7 +1,7 @@
-import datetime
 import json
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -15,11 +15,29 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
-from app.schemas.user import Token, UserRegister, UserResponse, UserLogin, VerifyOTP, ForgotPasswordRequest, ResetPasswordRequest
+from app.schemas.user import (
+    Token,
+    UserRegister,
+    UserResponse,
+    UserLogin,
+    VerifyOTP,
+    ForgotPasswordRequest,
+    ResendVerificationRequest,
+    ResetPasswordRequest,
+    RegistrationResponse,
+)
 from app.services.email_service import send_otp_email, generate_otp
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 _google_states: dict[str, float] = {}
+
+
+def _otp_expired(expires_at: datetime | None) -> bool:
+    if expires_at is None:
+        return True
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at < datetime.now(timezone.utc)
 
 
 def _google_configured() -> bool:
@@ -133,7 +151,9 @@ def google_callback(
 
 
 @router.post(
-    "/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED
+    "/register",
+    response_model=RegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 def register(user_in: UserRegister, db: Session = Depends(get_db)):
     existing_user = (
@@ -146,7 +166,7 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
         )
 
     otp = generate_otp()
-    expires_at = datetime.now(time.timezone.utc) + time.timedelta(minutes=30)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
 
     if not existing_user:
         new_user = User(
@@ -192,7 +212,7 @@ def verify_email(data: VerifyOTP, db: Session = Depends(get_db)):
             detail="Email already verified.",
         )
 
-    if user.otp_expires_at < datetime.now(time.timezone.utc):
+    if _otp_expired(user.otp_expires_at):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Verification code has expired.",
@@ -205,6 +225,23 @@ def verify_email(data: VerifyOTP, db: Session = Depends(get_db)):
 
     access_token = create_access_token(data=user.id)
     return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/resend-verification")
+def resend_verification(
+    data: ResendVerificationRequest, db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    if user.is_verified:
+        raise HTTPException(status_code=400, detail="Email is already verified.")
+
+    otp = generate_otp()
+    user.verification_code = otp
+    user.otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    db.commit()
+    send_otp_email(to_email=data.email, otp_code=otp, purpose="verification")
+    return {"message": "A new verification code has been sent."}
 
 @router.post("/forgot-password")
 def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
@@ -228,7 +265,7 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
             status_code=400, detail="Invalid Reset Code."
         )
 
-    if user.otp_expires_at < datetime.now(timezone.utc):
+    if _otp_expired(user.otp_expires_at):
         raise HTTPException(
             status_code=400, detail="Reset code has expired."
         )

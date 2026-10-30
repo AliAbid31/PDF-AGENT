@@ -107,7 +107,7 @@ export function LoginPage() {
                   Password
                 </label>
                 <a
-                  href="#"
+                  href="/reset-password"
                   className="text-xs text-red-600 dark:text-blue-400 hover:text-red-700 dark:hover:text-blue-300 transition-colors"
                 >
                   Forgot password?

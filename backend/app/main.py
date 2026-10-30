@@ -30,6 +30,18 @@ with engine.begin() as connection:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR"
     ))
     connection.execute(text(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE"
+    ))
+    connection.execute(text(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code VARCHAR(6)"
+    ))
+    connection.execute(text(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_code VARCHAR(6)"
+    ))
+    connection.execute(text(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMP"
+    ))
+    connection.execute(text(
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"
     ))
 

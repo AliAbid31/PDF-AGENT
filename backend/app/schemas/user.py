@@ -19,6 +19,9 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class RegistrationResponse(BaseModel):
+    message: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -28,6 +31,9 @@ class VerifyOTP(BaseModel):
     code: str
 
 class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
 class ResetPasswordRequest(BaseModel):

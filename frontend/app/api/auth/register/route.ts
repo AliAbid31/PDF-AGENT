@@ -14,13 +14,20 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      return NextResponse.json(error, { status: response.status });
+    const raw = await response.text();
+    let data: unknown;
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = {
+        detail:
+          response.status >= 500
+            ? "The authentication server failed while creating the account."
+            : raw || "Registration failed.",
+      };
     }
 
-    const data = await response.json();
-    return NextResponse.json(data, { status: 201 });
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
     console.error("Register error:", error);
     return NextResponse.json(

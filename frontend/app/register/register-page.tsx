@@ -54,9 +54,7 @@ export function RegisterPage() {
         throw new Error("Registration failed");
       }
 
-      const data = await response.json();
-      localStorage.setItem("access_token", data.access_token);
-      router.push("/login");
+      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
