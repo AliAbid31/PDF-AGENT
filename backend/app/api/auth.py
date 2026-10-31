@@ -6,9 +6,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -30,6 +31,84 @@ from app.services.email_service import send_otp_email, generate_otp
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 _google_states: dict[str, float] = {}
+RATE_LIMIT = 5
+RATE_WINDOW = timedelta(hours=1)
+
+
+def _client_id(request: Request, email: str) -> tuple[str, str]:
+    ip = request.client.host if request.client else "unknown"
+    return f"email:{email.casefold()}", f"ip:{ip}"
+
+
+def _rate_limited(db: Session, action: str, identifiers: tuple[str, str]) -> bool:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for identifier in identifiers:
+        row = db.execute(
+            text(
+                "SELECT window_started, attempts FROM auth_rate_limits "
+                "WHERE key = :key"
+            ),
+            {"key": f"{action}:{identifier}"},
+        ).mappings().first()
+        if row and now - row["window_started"] < RATE_WINDOW and row["attempts"] >= RATE_LIMIT:
+            return True
+    return False
+
+
+def _record_failed_attempt(
+    db: Session, action: str, identifiers: tuple[str, str]
+) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for identifier in identifiers:
+        key = f"{action}:{identifier}"
+        row = db.execute(
+            text(
+                "SELECT window_started, attempts FROM auth_rate_limits "
+                "WHERE key = :key FOR UPDATE"
+            ),
+            {"key": key},
+        ).mappings().first()
+        if not row or now - row["window_started"] >= RATE_WINDOW:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO auth_rate_limits (key, window_started, attempts)
+                    VALUES (:key, :started, 1)
+                    ON CONFLICT (key) DO UPDATE SET
+                        window_started = EXCLUDED.window_started,
+                        attempts = 1
+                    """
+                ),
+                {"key": key, "started": now},
+            )
+        else:
+            db.execute(
+                text(
+                    "UPDATE auth_rate_limits SET attempts = attempts + 1 "
+                    "WHERE key = :key"
+                ),
+                {"key": key},
+            )
+    db.commit()
+
+
+def _clear_rate_limit(db: Session, action: str, identifiers: tuple[str, str]) -> None:
+    db.execute(
+        text("DELETE FROM auth_rate_limits WHERE key IN (:email_key, :ip_key)"),
+        {
+            "email_key": f"{action}:{identifiers[0]}",
+            "ip_key": f"{action}:{identifiers[1]}",
+        },
+    )
+    db.commit()
+
+
+def _too_many_requests() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="too many requests, try later",
+        headers={"Retry-After": "3600"},
+    )
 
 
 def _otp_expired(expires_at: datetime | None) -> bool:
@@ -192,16 +271,25 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
 
 
 @router.post("/verify-email", response_model=Token)
-def verify_email(data: VerifyOTP, db: Session = Depends(get_db)):
+def verify_email(
+    data: VerifyOTP,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    identifiers = _client_id(request, data.email)
+    if _rate_limited(db, "verify-email", identifiers):
+        raise _too_many_requests()
     user = db.query(User).filter(User.email == data.email).first()
 
     if not user:
+        _record_failed_attempt(db, "verify-email", identifiers)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found.",
         )
 
     if not user or user.verification_code != data.code:
+        _record_failed_attempt(db, "verify-email", identifiers)
         raise HTTPException(
             status_code=400, detail="Invalid verification code."
         )
@@ -222,6 +310,7 @@ def verify_email(data: VerifyOTP, db: Session = Depends(get_db)):
     user.verification_code = None
     user.otp_expires_at = None
     db.commit()
+    _clear_rate_limit(db, "verify-email", identifiers)
 
     access_token = create_access_token(data=user.id)
     return {"access_token": access_token, "token_type": "bearer"}
@@ -258,9 +347,17 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     return "if an account with this email exists, a reset code has been sent."
 
 @router.post("/reset-password", response_model=Token)
-def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(
+    data: ResetPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    identifiers = _client_id(request, data.email)
+    if _rate_limited(db, "reset-password", identifiers):
+        raise _too_many_requests()
     user = db.query(User).filter(User.email == data.email).first()
     if not user or user.reset_password_code != data.code:
+        _record_failed_attempt(db, "reset-password", identifiers)
         raise HTTPException(
             status_code=400, detail="Invalid Reset Code."
         )
@@ -274,20 +371,26 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     user.reset_password_code = None
     user.otp_expires_at = None
     db.commit()
+    _clear_rate_limit(db, "reset-password", identifiers)
 
     access_token = create_access_token(data=user.id)
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
 def login(
+    request: Request,
     login_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
+    identifiers = _client_id(request, login_data.username)
+    if _rate_limited(db, "login", identifiers):
+        raise _too_many_requests()
     user = db.query(User).filter(User.email == login_data.username).first()
 
     if not user or not verify_password(
         login_data.password, user.hashed_password
     ):
+        _record_failed_attempt(db, "login", identifiers)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email or password incorrect.",
@@ -295,6 +398,7 @@ def login(
         )
 
     access_token = create_access_token(data=user.id)
+    _clear_rate_limit(db, "login", identifiers)
 
     return {"access_token": access_token, "token_type": "bearer"}
 

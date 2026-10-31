@@ -14,15 +14,14 @@ export async function POST(request: NextRequest) {
       body: body,
     });
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { detail: "Invalid credentials" },
-        { status: response.status }
-      );
+    const raw = await response.text();
+    let data: unknown;
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      data = { detail: raw || "Login failed." };
     }
-
-    const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, { status: response.status });
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(

@@ -1,8 +1,10 @@
 import io
+import time
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
@@ -44,6 +46,15 @@ with engine.begin() as connection:
     connection.execute(text(
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub)"
     ))
+    connection.execute(text(
+        """
+        CREATE TABLE IF NOT EXISTS auth_rate_limits (
+            key VARCHAR(512) PRIMARY KEY,
+            window_started TIMESTAMP NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    ))
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -56,6 +67,61 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api")
+
+
+def _generated_content_from_description(description: str) -> str:
+    prompt = f"""
+Create the complete content for a professional PDF based only on this user
+description:
+
+{description}
+
+Write the document itself, not a plan or an explanation of what you would do.
+Use a clear title, logical section headings, concise paragraphs, lists where
+useful, and a conclusion when appropriate. Keep the requested language,
+audience, scope, and approximate length. Do not mention PDFs, AI, prompts,
+uploaded files, or missing source documents.
+"""
+    content = None
+    last_error = None
+    for model_name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
+        for attempt in range(2):
+            try:
+                model = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    streaming=False,
+                    api_key=settings.GEMINI_API_KEY,
+                )
+                content = model.invoke(prompt).content
+                break
+            except Exception as error:
+                last_error = error
+                error_text = str(error).casefold()
+                temporary = any(
+                    marker in error_text
+                    for marker in ("503", "429", "unavailable", "resource exhausted")
+                )
+                if not temporary:
+                    raise
+                if attempt == 0:
+                    time.sleep(1)
+        if content is not None:
+            break
+    if content is None:
+        raise RuntimeError(
+            "The text-generation service is temporarily unavailable. "
+            "Please try again in a moment."
+        ) from last_error
+
+    if isinstance(content, list):
+        content = "\n".join(
+            str(part.get("text", "")) if isinstance(part, dict) else str(part)
+            for part in content
+        )
+    content = str(content).strip()
+    if not content:
+        raise RuntimeError("The model returned empty content for the requested PDF.")
+    return content
 
 
 @app.get("/api/documents")
@@ -167,6 +233,16 @@ async def chat_with_agent(
         "resume" in normalized_question
         or "résumé" in normalized_question
         or "pdf" in normalized_question
+        or (
+            any(
+                verb in normalized_question
+                for verb in ("generate", "create", "rédige", "rédiger", "crée")
+            )
+            and any(
+                noun in normalized_question
+                for noun in ("document", "report", "rapport", "étude", "study")
+            )
+        )
     )
 
     if is_pdf_resume_request:
@@ -187,32 +263,30 @@ async def chat_with_agent(
             finally:
                 db.close()
 
-            if not rows:
-                raise RuntimeError(
-                    "No indexed PDF content was found for the authenticated user."
-                )
-
-            pages: list[str] = []
-            current_page: tuple[str, int] | None = None
-            page_content: list[str] = []
-            for row in rows:
-                page_key = (row.document_name, row.page_number)
-                if current_page is not None and page_key != current_page:
+            if rows:
+                pages: list[str] = []
+                current_page: tuple[str, int] | None = None
+                page_content: list[str] = []
+                for row in rows:
+                    page_key = (row.document_name, row.page_number)
+                    if current_page is not None and page_key != current_page:
+                        pages.append(
+                            f"Page {current_page[1]} - {current_page[0]}\n"
+                            + "\n".join(page_content)
+                        )
+                        page_content = []
+                    current_page = page_key
+                    cleaned = review_summary_text(row.content)
+                    if cleaned:
+                        page_content.append(cleaned)
+                if current_page is not None:
                     pages.append(
                         f"Page {current_page[1]} - {current_page[0]}\n"
                         + "\n".join(page_content)
                     )
-                    page_content = []
-                current_page = page_key
-                cleaned = review_summary_text(row.content)
-                if cleaned:
-                    page_content.append(cleaned)
-            if current_page is not None:
-                pages.append(
-                    f"Page {current_page[1]} - {current_page[0]}\n"
-                    + "\n".join(page_content)
-                )
-            passages = review_summary_text("\n\n".join(pages))
+                passages = review_summary_text("\n\n".join(pages))
+            else:
+                passages = _generated_content_from_description(question)
 
             pdf_bytes = generate_pdf("Course Resume", passages)
             validate_pdf_bytes(pdf_bytes)

@@ -33,11 +33,10 @@ export function LoginPage() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Invalid credentials");
-      }
-
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Invalid credentials");
+      }
       localStorage.setItem("access_token", data.access_token);
       router.push("/dashboard");
     } catch (err) {
