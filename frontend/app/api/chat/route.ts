@@ -54,13 +54,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Buffer the upstream stream so an agent-side socket failure becomes a
-    // normal JSON error instead of a failed Next.js response pipe.
-    const body = await response.text();
-    return new Response(body, {
+    return new Response(response.body, {
+      status: response.status,
       headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
+        "Content-Type":
+          response.headers.get("content-type") ||
+          "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
       },
     });
   } catch (error) {

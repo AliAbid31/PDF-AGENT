@@ -9,9 +9,23 @@ from app.agent.tools import generate_pdf_tool, search_document
 from app.core.config import settings
 
 tools = [search_document, generate_pdf_tool]
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash", streaming=True, api_key=settings.GEMINI_API_KEY
-).bind_tools(tools)
+MODEL_FALLBACKS = ("gemini-3.8-flash", "gemini-3.5-flash")
+
+
+def _model_unavailable(error: Exception) -> bool:
+    message = str(error).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "404",
+            "not_found",
+            "not found",
+            "503",
+            "429",
+            "unavailable",
+            "resource exhausted",
+        )
+    )
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
@@ -32,11 +46,11 @@ summary.
 
 When the user says "generate a resume", "generate a résumé", "generate a
 summary PDF", or asks to generate a PDF, this is an explicit request to create
-and email a PDF file, not just to display a summary. After searching the
-document, you MUST call generate_pdf_tool with the complete summary as content.
-Use "Course Resume" as the document_title unless a more specific title is
-available. The user's email is injected automatically; never ask the user for
-it.
+and email a PDF file, not just to display a summary. After searching the document, you MUST call generate_pdf_tool with the complete
+requested content as content. Choose a document_title that describes the
+user's requested subject and document type; never use a fixed generic title
+when the request provides a specific subject. The user's email is injected
+automatically; never ask the user for it.
 
 For document questions, base the answer only on the passages returned by
 search_document. For summaries, request the complete document context, cover
@@ -47,7 +61,26 @@ insufficient, say which part could not be read instead of guessing.
     messages = [{"role": "system", "content": system_prompt}] + list(
         state["messages"]
     )
-    response = llm.invoke(messages)
+    response = None
+    last_error: Exception | None = None
+    for model_name in MODEL_FALLBACKS:
+        try:
+            model = ChatGoogleGenerativeAI(
+                model=model_name,
+                streaming=True,
+                api_key=settings.GEMINI_API_KEY,
+            ).bind_tools(tools)
+            response = model.invoke(messages)
+            break
+        except Exception as error:
+            last_error = error
+            if not _model_unavailable(error):
+                raise
+    if response is None:
+        raise RuntimeError(
+            "The configured Gemini models are unavailable. "
+            "Please check the Gemini API key and enabled models."
+        ) from last_error
     return {"messages": [response]}
 
 

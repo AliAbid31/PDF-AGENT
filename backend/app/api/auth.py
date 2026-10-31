@@ -1,15 +1,17 @@
 import json
+import logging
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request as URLRequest, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import text
+from sqlalchemy import func, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -20,7 +22,6 @@ from app.schemas.user import (
     Token,
     UserRegister,
     UserResponse,
-    UserLogin,
     VerifyOTP,
     ForgotPasswordRequest,
     ResendVerificationRequest,
@@ -30,12 +31,13 @@ from app.schemas.user import (
 from app.services.email_service import send_otp_email, generate_otp
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
+logger = logging.getLogger(__name__)
 _google_states: dict[str, float] = {}
 RATE_LIMIT = 5
 RATE_WINDOW = timedelta(hours=1)
 
 
-def _client_id(request: Request, email: str) -> tuple[str, str]:
+def _client_id(request: FastAPIRequest, email: str) -> tuple[str, str]:
     ip = request.client.host if request.client else "unknown"
     return f"email:{email.casefold()}", f"ip:{ip}"
 
@@ -150,7 +152,7 @@ def google_login():
 
 
 def _google_post(url: str, data: dict[str, str]) -> dict:
-    request = Request(
+    request = URLRequest(
         url,
         data=urlencode(data).encode("utf-8"),
         headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -161,7 +163,7 @@ def _google_post(url: str, data: dict[str, str]) -> dict:
 
 
 def _google_get(url: str) -> dict:
-    with urlopen(Request(url), timeout=15) as response:
+    with urlopen(URLRequest(url), timeout=15) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -206,22 +208,39 @@ def google_callback(
             or not profile.get("sub")
         ):
             raise ValueError("Google account verification failed.")
-    except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
         return RedirectResponse(
             f"{settings.FRONTEND_URL}/auth/callback?error=google_auth_failed"
         )
 
-    user = db.query(User).filter(User.google_sub == profile["sub"]).first()
-    if not user:
-        user = db.query(User).filter(User.email == profile["email"]).first()
-    if user:
-        if not user.google_sub:
-            user.google_sub = profile["sub"]
-    else:
-        user = User(email=profile["email"], google_sub=profile["sub"])
-        db.add(user)
-    db.commit()
-    db.refresh(user)
+    google_email = profile["email"].strip().casefold()
+    try:
+        user = db.query(User).filter(User.google_sub == profile["sub"]).first()
+        if not user:
+            user = (
+                db.query(User)
+                .filter(func.lower(User.email) == google_email)
+                .first()
+            )
+        if user:
+            if not user.google_sub:
+                user.google_sub = profile["sub"]
+            user.is_verified = True
+        else:
+            user = User(
+                email=google_email,
+                google_sub=profile["sub"],
+                is_verified=True,
+            )
+            db.add(user)
+        db.commit()
+        db.refresh(user)
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Google OAuth user persistence failed")
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL}/auth/callback?error=google_account_error"
+        )
 
     access_token = create_access_token(data=user.id)
     return RedirectResponse(
@@ -273,7 +292,7 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
 @router.post("/verify-email", response_model=Token)
 def verify_email(
     data: VerifyOTP,
-    request: Request,
+    request: FastAPIRequest,
     db: Session = Depends(get_db),
 ):
     identifiers = _client_id(request, data.email)
@@ -349,7 +368,7 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
 @router.post("/reset-password", response_model=Token)
 def reset_password(
     data: ResetPasswordRequest,
-    request: Request,
+    request: FastAPIRequest,
     db: Session = Depends(get_db),
 ):
     identifiers = _client_id(request, data.email)
@@ -378,7 +397,7 @@ def reset_password(
 
 @router.post("/login", response_model=Token)
 def login(
-    request: Request,
+    request: FastAPIRequest,
     login_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):

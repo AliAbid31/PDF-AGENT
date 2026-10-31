@@ -1,4 +1,5 @@
 import io
+import re
 import time
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,12 +70,17 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 
 
-def _generated_content_from_description(description: str) -> str:
+def _generated_document_from_description(description: str) -> tuple[str, str]:
     prompt = f"""
-Create the complete content for a professional PDF based only on this user
-description:
+Create a complete, original professional document based only on this user
+request:
 
 {description}
+
+Return exactly this format:
+DOCUMENT_TITLE: a concise, specific title that reflects the requested subject
+DOCUMENT_CONTENT:
+the complete document
 
 Write the document itself, not a plan or an explanation of what you would do.
 Use a clear title, logical section headings, concise paragraphs, lists where
@@ -84,7 +90,7 @@ uploaded files, or missing source documents.
 """
     content = None
     last_error = None
-    for model_name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
+    for model_name in ("gemini-3.8-flash", "gemini-3.5-flash"):
         for attempt in range(2):
             try:
                 model = ChatGoogleGenerativeAI(
@@ -99,7 +105,15 @@ uploaded files, or missing source documents.
                 error_text = str(error).casefold()
                 temporary = any(
                     marker in error_text
-                    for marker in ("503", "429", "unavailable", "resource exhausted")
+                    for marker in (
+                        "404",
+                        "not_found",
+                        "not found",
+                        "503",
+                        "429",
+                        "unavailable",
+                        "resource exhausted",
+                    )
                 )
                 if not temporary:
                     raise
@@ -118,10 +132,71 @@ uploaded files, or missing source documents.
             str(part.get("text", "")) if isinstance(part, dict) else str(part)
             for part in content
         )
-    content = str(content).strip()
-    if not content:
+    generated = str(content).strip()
+    if not generated:
         raise RuntimeError("The model returned empty content for the requested PDF.")
-    return content
+
+    title_match = re.search(
+        r"(?im)^[ \t]*DOCUMENT_TITLE[ \t]*:[ \t]*(.+?)[ \t]*$", generated
+    )
+    content_match = re.search(
+        r"(?ism)^[ \t]*DOCUMENT_CONTENT[ \t]*:[ \t]*(.+)$", generated
+    )
+    if title_match and content_match:
+        title = title_match.group(1).strip()
+        document_content = content_match.group(1).strip()
+    else:
+        lines = [line.strip() for line in generated.splitlines() if line.strip()]
+        title = lines[0].lstrip("#").strip() if lines else "Generated Document"
+        document_content = generated
+
+    title = re.sub(r"\s+", " ", title).strip(" -*:_")
+    if not title:
+        title = "Generated Document"
+    if not document_content:
+        raise RuntimeError("The model returned empty content for the requested PDF.")
+    return title[:160], document_content
+
+
+def _safe_filename(value: str) -> str:
+    filename = re.sub(r"[^\w\s-]", "", value, flags=re.UNICODE)
+    filename = re.sub(r"[\s-]+", "_", filename).strip("_")
+    return (filename or "Generated_Document")[:120] + ".pdf"
+
+
+def _is_description_document_request(question: str) -> bool:
+    normalized = question.casefold()
+    return (
+        any(
+            verb in normalized
+            for verb in ("generate", "create", "rédige", "rédiger", "crée", "écris")
+        )
+        and any(
+            noun in normalized
+            for noun in (
+                "document",
+                "report",
+                "rapport",
+                "étude",
+                "study",
+                "essay",
+                "article",
+                "guide",
+            )
+        )
+        and not any(
+            phrase in normalized
+            for phrase in ("summary of", "résumé de", "summarize", "résumer")
+        )
+    )
+
+
+def _summary_title(document_name: str | None) -> str:
+    if not document_name:
+        return "Document Summary"
+    source_name = re.sub(r"(?i)\.pdf$", "", document_name)
+    source_name = re.sub(r"[_-]+", " ", source_name).strip()
+    return f"Summary - {source_name}" if source_name else "Document Summary"
 
 
 @app.get("/api/documents")
@@ -247,6 +322,7 @@ async def chat_with_agent(
 
     if is_pdf_resume_request:
         try:
+            title = "Document Summary"
             db = SessionLocal()
             try:
                 rows = db.execute(
@@ -263,7 +339,9 @@ async def chat_with_agent(
             finally:
                 db.close()
 
-            if rows:
+            if _is_description_document_request(question):
+                title, passages = _generated_document_from_description(question)
+            elif rows:
                 pages: list[str] = []
                 current_page: tuple[str, int] | None = None
                 page_content: list[str] = []
@@ -285,21 +363,23 @@ async def chat_with_agent(
                         + "\n".join(page_content)
                     )
                 passages = review_summary_text("\n\n".join(pages))
+                title = _summary_title(rows[0].document_name)
             else:
-                passages = _generated_content_from_description(question)
+                title, passages = _generated_document_from_description(question)
 
-            pdf_bytes = generate_pdf("Course Resume", passages)
+            pdf_bytes = generate_pdf(title, passages)
             validate_pdf_bytes(pdf_bytes)
+            filename = _safe_filename(title)
             send_email(
                 to_email=current_user.email,
-                subject="Your Course Resume",
-                text="Your course resume is attached.",
+                subject=f"Your generated document: {title}",
+                text=f"Your generated document, {title}, is attached.",
                 pdf_bytes=pdf_bytes,
-                filename="Course_Resume.pdf",
+                filename=filename,
             )
 
             async def direct_pdf_response():
-                yield "data: Your PDF summary was generated and sent to your email.\n\n"
+                yield "data: Your requested PDF was generated and sent to your email.\n\n"
 
             return StreamingResponse(
                 direct_pdf_response(), media_type="text/event-stream"
@@ -334,7 +414,7 @@ async def chat_with_agent(
                         msg = value["messages"][-1]
                         if getattr(msg, "name", None) == "generate_pdf_tool":
                             yield (
-                                "data: Your PDF summary was generated and sent "
+                                "data: Your requested PDF was generated and sent "
                                 "to your email.\n\n"
                             )
                             continue
