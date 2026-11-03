@@ -37,4 +37,7 @@ def get_current_user(
             detail="This user account has been deactivated.",
         )
 
+    # Release the pooled connection before long-running requests such as PDF
+    # generation and streaming responses.
+    db.commit()
     return user
