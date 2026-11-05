@@ -19,3 +19,5 @@ pypdf
 tiktoken
 reportlab
 resend
+email-validator
+pydantic[email]
