@@ -197,6 +197,7 @@ def google_callback(
         id_token = tokens.get("id_token")
         if not id_token:
             raise ValueError("Google did not return an ID token.")
+        
         profile = _google_get(
             f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
         )
@@ -243,8 +244,12 @@ def google_callback(
         )
 
     access_token = create_access_token(data=user.id)
+    frontend_url = getattr(
+        settings, "FRONTEND_URL", "https://ali-pdf-agent.netlify.app"
+    )
+
     return RedirectResponse(
-        f"{settings.FRONTEND_URL}/auth/callback#token={access_token}"
+        url=f"{frontend_url}/dashboard?token={access_token}"
     )
 
 
