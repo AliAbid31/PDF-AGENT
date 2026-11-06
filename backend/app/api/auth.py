@@ -249,7 +249,7 @@ def google_callback(
     )
 
     return RedirectResponse(
-        url=f"{frontend_url}/dashboard?token={access_token}"
+        url=f"{frontend_url}/auth/callback#token={access_token}"
     )
 
 

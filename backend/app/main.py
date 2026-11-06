@@ -64,6 +64,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://ali-pdf-agent.live",  # Ton domaine personnalisé
+        "https://ali-pdf-agent.netlify.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
